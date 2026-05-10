@@ -234,7 +234,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub ${ProjectName}-${EnvironmentName}-upload-url-role
-      AssumeRolePolicyDocument: &LambdaTrust
+      AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
           - Effect: Allow
@@ -259,7 +259,13 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub ${ProjectName}-${EnvironmentName}-document-status-role
-      AssumeRolePolicyDocument: *LambdaTrust
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
@@ -278,7 +284,13 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub ${ProjectName}-${EnvironmentName}-start-process-role
-      AssumeRolePolicyDocument: *LambdaTrust
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
@@ -303,7 +315,13 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub ${ProjectName}-${EnvironmentName}-process-status-role
-      AssumeRolePolicyDocument: *LambdaTrust
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
@@ -319,7 +337,13 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub ${ProjectName}-${EnvironmentName}-processing-worker-role
-      AssumeRolePolicyDocument: *LambdaTrust
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
@@ -346,7 +370,13 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub ${ProjectName}-${EnvironmentName}-retrieval-role
-      AssumeRolePolicyDocument: *LambdaTrust
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
 
@@ -354,7 +384,13 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub ${ProjectName}-${EnvironmentName}-ask-role
-      AssumeRolePolicyDocument: *LambdaTrust
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
 
@@ -370,7 +406,7 @@ Resources:
       Code:
         S3Bucket: !Ref LambdaCodeS3Bucket
         S3Key: !Ref UploadUrlCodeS3Key
-      Environment: &CommonEnvironment
+      Environment:
         Variables:
           AWS_REGION: !Ref AWS::Region
           RAW_BUCKET: !Ref RawDocumentsBucket
@@ -406,7 +442,29 @@ Resources:
       Code:
         S3Bucket: !Ref LambdaCodeS3Bucket
         S3Key: !Ref DocumentStatusCodeS3Key
-      Environment: *CommonEnvironment
+      Environment:
+        Variables:
+          AWS_REGION: !Ref AWS::Region
+          RAW_BUCKET: !Ref RawDocumentsBucket
+          DOCUMENT_TABLE: !Ref DocumentsTable
+          PROCESS_JOB_TABLE: !Ref ProcessJobsTable
+          PROCESS_QUEUE_URL: !Ref ProcessingQueue
+          UPLOAD_EXPIRY_SECONDS: "900"
+          MAX_FILES: "10"
+          MAX_FILE_SIZE_BYTES: "10485760"
+          OPENAI_API_KEY: !Ref OpenAIApiKey
+          OPENAI_EMBEDDING_MODEL: !Ref OpenAIEmbeddingModel
+          OPENAI_LLM_MODEL: !Ref OpenAILlmModel
+          PG_HOST: !GetAtt PostgresDb.Endpoint.Address
+          PG_PORT: !GetAtt PostgresDb.Endpoint.Port
+          PG_DATABASE: !Ref DbName
+          PG_USER: !Ref DbUsername
+          PG_PASSWORD: !Ref DbPassword
+          CHUNK_SIZE: "800"
+          CHUNK_OVERLAP: "120"
+          EMBEDDING_BATCH_SIZE: "50"
+          DEFAULT_TOP_K: "5"
+          DEFAULT_SIMILARITY_THRESHOLD: "0.0"
 
   StartProcessFunction:
     Type: AWS::Lambda::Function
@@ -420,7 +478,29 @@ Resources:
       Code:
         S3Bucket: !Ref LambdaCodeS3Bucket
         S3Key: !Ref StartProcessCodeS3Key
-      Environment: *CommonEnvironment
+      Environment:
+        Variables:
+          AWS_REGION: !Ref AWS::Region
+          RAW_BUCKET: !Ref RawDocumentsBucket
+          DOCUMENT_TABLE: !Ref DocumentsTable
+          PROCESS_JOB_TABLE: !Ref ProcessJobsTable
+          PROCESS_QUEUE_URL: !Ref ProcessingQueue
+          UPLOAD_EXPIRY_SECONDS: "900"
+          MAX_FILES: "10"
+          MAX_FILE_SIZE_BYTES: "10485760"
+          OPENAI_API_KEY: !Ref OpenAIApiKey
+          OPENAI_EMBEDDING_MODEL: !Ref OpenAIEmbeddingModel
+          OPENAI_LLM_MODEL: !Ref OpenAILlmModel
+          PG_HOST: !GetAtt PostgresDb.Endpoint.Address
+          PG_PORT: !GetAtt PostgresDb.Endpoint.Port
+          PG_DATABASE: !Ref DbName
+          PG_USER: !Ref DbUsername
+          PG_PASSWORD: !Ref DbPassword
+          CHUNK_SIZE: "800"
+          CHUNK_OVERLAP: "120"
+          EMBEDDING_BATCH_SIZE: "50"
+          DEFAULT_TOP_K: "5"
+          DEFAULT_SIMILARITY_THRESHOLD: "0.0"
 
   ProcessStatusFunction:
     Type: AWS::Lambda::Function
@@ -434,7 +514,29 @@ Resources:
       Code:
         S3Bucket: !Ref LambdaCodeS3Bucket
         S3Key: !Ref ProcessStatusCodeS3Key
-      Environment: *CommonEnvironment
+      Environment:
+        Variables:
+          AWS_REGION: !Ref AWS::Region
+          RAW_BUCKET: !Ref RawDocumentsBucket
+          DOCUMENT_TABLE: !Ref DocumentsTable
+          PROCESS_JOB_TABLE: !Ref ProcessJobsTable
+          PROCESS_QUEUE_URL: !Ref ProcessingQueue
+          UPLOAD_EXPIRY_SECONDS: "900"
+          MAX_FILES: "10"
+          MAX_FILE_SIZE_BYTES: "10485760"
+          OPENAI_API_KEY: !Ref OpenAIApiKey
+          OPENAI_EMBEDDING_MODEL: !Ref OpenAIEmbeddingModel
+          OPENAI_LLM_MODEL: !Ref OpenAILlmModel
+          PG_HOST: !GetAtt PostgresDb.Endpoint.Address
+          PG_PORT: !GetAtt PostgresDb.Endpoint.Port
+          PG_DATABASE: !Ref DbName
+          PG_USER: !Ref DbUsername
+          PG_PASSWORD: !Ref DbPassword
+          CHUNK_SIZE: "800"
+          CHUNK_OVERLAP: "120"
+          EMBEDDING_BATCH_SIZE: "50"
+          DEFAULT_TOP_K: "5"
+          DEFAULT_SIMILARITY_THRESHOLD: "0.0"
 
   ProcessingWorkerFunction:
     Type: AWS::Lambda::Function
@@ -448,7 +550,29 @@ Resources:
       Code:
         S3Bucket: !Ref LambdaCodeS3Bucket
         S3Key: !Ref ProcessingWorkerCodeS3Key
-      Environment: *CommonEnvironment
+      Environment:
+        Variables:
+          AWS_REGION: !Ref AWS::Region
+          RAW_BUCKET: !Ref RawDocumentsBucket
+          DOCUMENT_TABLE: !Ref DocumentsTable
+          PROCESS_JOB_TABLE: !Ref ProcessJobsTable
+          PROCESS_QUEUE_URL: !Ref ProcessingQueue
+          UPLOAD_EXPIRY_SECONDS: "900"
+          MAX_FILES: "10"
+          MAX_FILE_SIZE_BYTES: "10485760"
+          OPENAI_API_KEY: !Ref OpenAIApiKey
+          OPENAI_EMBEDDING_MODEL: !Ref OpenAIEmbeddingModel
+          OPENAI_LLM_MODEL: !Ref OpenAILlmModel
+          PG_HOST: !GetAtt PostgresDb.Endpoint.Address
+          PG_PORT: !GetAtt PostgresDb.Endpoint.Port
+          PG_DATABASE: !Ref DbName
+          PG_USER: !Ref DbUsername
+          PG_PASSWORD: !Ref DbPassword
+          CHUNK_SIZE: "800"
+          CHUNK_OVERLAP: "120"
+          EMBEDDING_BATCH_SIZE: "50"
+          DEFAULT_TOP_K: "5"
+          DEFAULT_SIMILARITY_THRESHOLD: "0.0"
 
   RetrievalFunction:
     Type: AWS::Lambda::Function
@@ -462,7 +586,29 @@ Resources:
       Code:
         S3Bucket: !Ref LambdaCodeS3Bucket
         S3Key: !Ref RetrievalCodeS3Key
-      Environment: *CommonEnvironment
+      Environment:
+        Variables:
+          AWS_REGION: !Ref AWS::Region
+          RAW_BUCKET: !Ref RawDocumentsBucket
+          DOCUMENT_TABLE: !Ref DocumentsTable
+          PROCESS_JOB_TABLE: !Ref ProcessJobsTable
+          PROCESS_QUEUE_URL: !Ref ProcessingQueue
+          UPLOAD_EXPIRY_SECONDS: "900"
+          MAX_FILES: "10"
+          MAX_FILE_SIZE_BYTES: "10485760"
+          OPENAI_API_KEY: !Ref OpenAIApiKey
+          OPENAI_EMBEDDING_MODEL: !Ref OpenAIEmbeddingModel
+          OPENAI_LLM_MODEL: !Ref OpenAILlmModel
+          PG_HOST: !GetAtt PostgresDb.Endpoint.Address
+          PG_PORT: !GetAtt PostgresDb.Endpoint.Port
+          PG_DATABASE: !Ref DbName
+          PG_USER: !Ref DbUsername
+          PG_PASSWORD: !Ref DbPassword
+          CHUNK_SIZE: "800"
+          CHUNK_OVERLAP: "120"
+          EMBEDDING_BATCH_SIZE: "50"
+          DEFAULT_TOP_K: "5"
+          DEFAULT_SIMILARITY_THRESHOLD: "0.0"
 
   AskFunction:
     Type: AWS::Lambda::Function
@@ -476,7 +622,29 @@ Resources:
       Code:
         S3Bucket: !Ref LambdaCodeS3Bucket
         S3Key: !Ref AskCodeS3Key
-      Environment: *CommonEnvironment
+      Environment:
+        Variables:
+          AWS_REGION: !Ref AWS::Region
+          RAW_BUCKET: !Ref RawDocumentsBucket
+          DOCUMENT_TABLE: !Ref DocumentsTable
+          PROCESS_JOB_TABLE: !Ref ProcessJobsTable
+          PROCESS_QUEUE_URL: !Ref ProcessingQueue
+          UPLOAD_EXPIRY_SECONDS: "900"
+          MAX_FILES: "10"
+          MAX_FILE_SIZE_BYTES: "10485760"
+          OPENAI_API_KEY: !Ref OpenAIApiKey
+          OPENAI_EMBEDDING_MODEL: !Ref OpenAIEmbeddingModel
+          OPENAI_LLM_MODEL: !Ref OpenAILlmModel
+          PG_HOST: !GetAtt PostgresDb.Endpoint.Address
+          PG_PORT: !GetAtt PostgresDb.Endpoint.Port
+          PG_DATABASE: !Ref DbName
+          PG_USER: !Ref DbUsername
+          PG_PASSWORD: !Ref DbPassword
+          CHUNK_SIZE: "800"
+          CHUNK_OVERLAP: "120"
+          EMBEDDING_BATCH_SIZE: "50"
+          DEFAULT_TOP_K: "5"
+          DEFAULT_SIMILARITY_THRESHOLD: "0.0"
 
   ProcessingWorkerEventSource:
     Type: AWS::Lambda::EventSourceMapping
