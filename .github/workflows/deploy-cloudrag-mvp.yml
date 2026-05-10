@@ -74,6 +74,22 @@ jobs:
           test -n "${ARTIFACT_BUCKET}" || (echo "Set repository variable CFN_ARTIFACT_BUCKET" && exit 1)
           aws s3 cp dist/lambda/ "s3://${ARTIFACT_BUCKET}/${ARTIFACT_PREFIX}/" --recursive --exclude "*" --include "*.zip"
 
+      - name: Delete unrecoverable failed stack
+        run: |
+          STATUS="$(aws cloudformation describe-stacks \
+            --stack-name "${STACK_NAME}" \
+            --region "${AWS_REGION}" \
+            --query "Stacks[0].StackStatus" \
+            --output text 2>/dev/null || true)"
+
+          if [ "${STATUS}" = "ROLLBACK_COMPLETE" ]; then
+            echo "Stack ${STACK_NAME} is ${STATUS}; deleting before fresh deploy."
+            aws cloudformation delete-stack --stack-name "${STACK_NAME}" --region "${AWS_REGION}"
+            aws cloudformation wait stack-delete-complete --stack-name "${STACK_NAME}" --region "${AWS_REGION}"
+          else
+            echo "Stack status: ${STATUS:-not found}"
+          fi
+
       - name: Deploy CloudFormation stack
         run: |
           aws cloudformation deploy \
