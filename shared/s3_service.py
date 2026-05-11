@@ -45,8 +45,21 @@ def put_json(bucket: str, key: str, data: dict) -> None:
     s3.put_object(
         Bucket=bucket,
         Key=key,
-        Body=json.dumps(data).encode("utf-8"),
+        Body=json.dumps(data, default=str).encode("utf-8"),
         ContentType="application/json",
+    )
+
+
+def put_text(bucket: str, key: str, text: str, content_type: str = "text/plain") -> None:
+    logger.info("Writing text to s3://%s/%s content_type=%s", bucket, key, content_type)
+    s3.put_object(Bucket=bucket, Key=key, Body=text.encode("utf-8"), ContentType=content_type)
+
+
+def create_presigned_get(bucket: str, key: str, expires_in: int = 3600) -> str:
+    return s3.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": bucket, "Key": key},
+        ExpiresIn=expires_in,
     )
 
 

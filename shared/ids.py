@@ -27,3 +27,15 @@ def generate_run_id() -> str:
 
 def generate_memory_id() -> str:
     return f"mem_{uuid.uuid4().hex}"
+
+
+def generate_trace_id() -> str:
+    return f"trace_{uuid.uuid4().hex}"
+
+
+def generate_span_id() -> str:
+    return f"span_{uuid.uuid4().hex}"
+
+
+def generate_artifact_id() -> str:
+    return f"artifact_{uuid.uuid4().hex}"

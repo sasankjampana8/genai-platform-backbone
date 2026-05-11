@@ -49,6 +49,12 @@ Parameters:
     Type: String
   MemoryCodeS3Key:
     Type: String
+  ChatCodeS3Key:
+    Type: String
+  RuntimeWorkerCodeS3Key:
+    Type: String
+  RunCodeS3Key:
+    Type: String
   UploadUrlCodeS3Key:
     Type: String
   DocumentStatusCodeS3Key:
@@ -265,6 +271,41 @@ Resources:
           Projection:
             ProjectionType: ALL
 
+  RunsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: cloudrag_runs
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: run_id
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: chat_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: run_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: user_id-created_at-index
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: chat_id-created_at-index
+          KeySchema:
+            - AttributeName: chat_id
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
   ProcessingDLQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -278,6 +319,21 @@ Resources:
       VisibilityTimeout: 960
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProcessingDLQ.Arn
+        maxReceiveCount: 3
+
+  RuntimeDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: cloudrag-runtime-dlq
+      MessageRetentionPeriod: 345600
+
+  RuntimeQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: cloudrag-runtime-queue
+      VisibilityTimeout: 360
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt RuntimeDLQ.Arn
         maxReceiveCount: 3
 
   RagVpc:
@@ -495,6 +551,116 @@ Resources:
                   - !GetAtt MessagesTable.Arn
                   - !GetAtt MemoryTable.Arn
                   - !Sub ${MemoryTable.Arn}/index/*
+
+  ChatRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-${EnvironmentName}-chat-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ChatAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt ChatsTable.Arn
+                  - !Sub ${ChatsTable.Arn}/index/*
+                  - !GetAtt MessagesTable.Arn
+                  - !GetAtt RunsTable.Arn
+                  - !Sub ${RunsTable.Arn}/index/*
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt RuntimeQueue.Arn
+
+  RuntimeWorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-${EnvironmentName}-runtime-worker-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: RuntimeWorkerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:ChangeMessageVisibility
+                Resource: !GetAtt RuntimeQueue.Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt ChatsTable.Arn
+                  - !Sub ${ChatsTable.Arn}/index/*
+                  - !GetAtt MessagesTable.Arn
+                  - !GetAtt MemoryTable.Arn
+                  - !Sub ${MemoryTable.Arn}/index/*
+                  - !GetAtt RunsTable.Arn
+                  - !Sub ${RunsTable.Arn}/index/*
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource:
+                  - !Sub ${RawDocumentsBucket.Arn}/traces/*
+                  - !Sub ${RawDocumentsBucket.Arn}/artifacts/*
+
+  RunRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-${EnvironmentName}-run-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: RunAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt RunsTable.Arn
+                  - !Sub ${RunsTable.Arn}/index/*
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub ${RawDocumentsBucket.Arn}/traces/*
 
   UploadUrlRole:
     Type: AWS::IAM::Role
@@ -981,12 +1147,89 @@ Resources:
           MESSAGE_TABLE: !Ref MessagesTable
           MEMORY_TABLE: !Ref MemoryTable
 
+  ChatFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: cloudrag-chat-handler
+      Runtime: python3.13
+      Handler: handler.lambda_handler
+      Role: !GetAtt ChatRole.Arn
+      Timeout: 30
+      MemorySize: 512
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref ChatCodeS3Key
+      Environment:
+        Variables:
+          CHAT_TABLE: !Ref ChatsTable
+          MESSAGE_TABLE: !Ref MessagesTable
+          MEMORY_TABLE: !Ref MemoryTable
+          RUNS_TABLE: !Ref RunsTable
+          RUNTIME_QUEUE_URL: !Ref RuntimeQueue
+
+  RuntimeWorkerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: cloudrag-runtime-worker
+      Runtime: python3.13
+      Handler: handler.lambda_handler
+      Role: !GetAtt RuntimeWorkerRole.Arn
+      Timeout: 300
+      MemorySize: 1024
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref RuntimeWorkerCodeS3Key
+      Environment:
+        Variables:
+          RAW_BUCKET: !Ref RawDocumentsBucket
+          CHAT_TABLE: !Ref ChatsTable
+          MESSAGE_TABLE: !Ref MessagesTable
+          MEMORY_TABLE: !Ref MemoryTable
+          RUNS_TABLE: !Ref RunsTable
+          RUNTIME_QUEUE_URL: !Ref RuntimeQueue
+          OPENAI_API_KEY: !Ref OpenAIApiKey
+          OPENAI_EMBEDDING_MODEL: !Ref OpenAIEmbeddingModel
+          OPENAI_LLM_MODEL: !Ref OpenAILlmModel
+          PG_HOST: !GetAtt PostgresDb.Endpoint.Address
+          PG_PORT: !GetAtt PostgresDb.Endpoint.Port
+          PG_DATABASE: !Ref DbName
+          PG_USER: !Ref DbUsername
+          PG_PASSWORD: !Ref DbPassword
+          DEFAULT_TOP_K: "5"
+          DEFAULT_SIMILARITY_THRESHOLD: "0.0"
+
+  RunFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: cloudrag-run-handler
+      Runtime: python3.13
+      Handler: handler.lambda_handler
+      Role: !GetAtt RunRole.Arn
+      Timeout: 30
+      MemorySize: 512
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref RunCodeS3Key
+      Environment:
+        Variables:
+          RAW_BUCKET: !Ref RawDocumentsBucket
+          RUNS_TABLE: !Ref RunsTable
+
   ProcessingWorkerEventSource:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
       BatchSize: 1
       EventSourceArn: !GetAtt ProcessingQueue.Arn
       FunctionName: !Ref ProcessingWorkerFunction
+
+  RuntimeWorkerEventSource:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+      EventSourceArn: !GetAtt RuntimeQueue.Arn
+      FunctionName: !Ref RuntimeWorkerFunction
 
   HttpApi:
     Type: AWS::ApiGatewayV2::Api
@@ -1040,6 +1283,22 @@ Resources:
       ApiId: !Ref HttpApi
       IntegrationType: AWS_PROXY
       IntegrationUri: !GetAtt MemoryFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  ChatIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ChatFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  RunIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt RunFunction.Arn
       PayloadFormatVersion: "2.0"
 
   UploadUrlIntegration:
@@ -1197,6 +1456,105 @@ Resources:
       AuthorizationType: JWT
       AuthorizerId: !Ref JwtAuthorizer
 
+  ChatCreateRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: POST /v1/chats
+      Target: !Sub integrations/${ChatIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  ChatListRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /v1/chats
+      Target: !Sub integrations/${ChatIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  ChatDetailRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /v1/chats/{chat_id}
+      Target: !Sub integrations/${ChatIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  ChatMessagesRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /v1/chats/{chat_id}/messages
+      Target: !Sub integrations/${ChatIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  ChatSendMessageRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: POST /v1/chats/{chat_id}/messages
+      Target: !Sub integrations/${ChatIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  ChatMessageResponseRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /v1/chats/{chat_id}/messages/{message_id}/response
+      Target: !Sub integrations/${ChatIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  RunsListRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /v1/runs
+      Target: !Sub integrations/${RunIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  RunDetailRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /v1/runs/{run_id}
+      Target: !Sub integrations/${RunIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  RunTraceRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /v1/runs/{run_id}/trace
+      Target: !Sub integrations/${RunIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  ObservabilitySummaryRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /v1/observability/summary
+      Target: !Sub integrations/${RunIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  ObservabilityErrorsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /v1/observability/errors
+      Target: !Sub integrations/${RunIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
   UploadUrlRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -1259,6 +1617,22 @@ Resources:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref MemoryFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*/*
+
+  ChatInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ChatFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*/*
+
+  RunInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref RunFunction
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*/*
@@ -1332,8 +1706,12 @@ Outputs:
     Value: !Ref MessagesTable
   MemoryTableName:
     Value: !Ref MemoryTable
+  RunsTableName:
+    Value: !Ref RunsTable
   ProcessingQueueUrl:
     Value: !Ref ProcessingQueue
+  RuntimeQueueUrl:
+    Value: !Ref RuntimeQueue
   DbEndpoint:
     Value: !GetAtt PostgresDb.Endpoint.Address
   DbPort:

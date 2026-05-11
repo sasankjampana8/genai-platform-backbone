@@ -882,6 +882,14 @@ Routing rules:
 - Use `DIRECT` when no retrieval or tools are needed.
 - Use `HYBRID` when multiple routes apply.
 
+Current implementation notes:
+
+- The runtime worker uses a LangGraph-compatible state boundary with a safe fallback if LangGraph is not installed.
+- RAG retrieval now expands beyond plain top-k vector search: vector candidate search, optional metadata filters, lexical reranking, per-document diversity, and parent-neighbor chunk context.
+- The web/API tool is currently mocked behind `shared.web_tool.search_web`.
+- The chart tool currently creates SVG chart artifacts in S3 behind `shared.chart_tool.create_chart_artifact`.
+- Full run traces are stored under `traces/{user_id}/{run_id}/trace.json`.
+
 ## Storage Contract
 
 S3:
@@ -891,7 +899,7 @@ raw/{user_id}/{document_id}/{safe_file_name}
 processed/{user_id}/{document_id}/extracted_text.json
 processed/{user_id}/{document_id}/chunks.json
 traces/{user_id}/{run_id}/trace.json
-artifacts/{user_id}/{run_id}/chart.png
+artifacts/{user_id}/{run_id}/{artifact_id}.svg
 ```
 
 PostgreSQL pgvector remains the primary searchable vector store. Embeddings should not be stored in S3 as the primary vector store.

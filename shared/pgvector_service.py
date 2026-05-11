@@ -99,6 +99,91 @@ def search_chunks(
             return list(cur.fetchall())
 
 
+def search_chunk_candidates(
+    user_id: str,
+    query_embedding: list[float],
+    document_ids: list[str] | None = None,
+    candidate_k: int = 30,
+    similarity_threshold: float | None = None,
+    metadata_filters: dict | None = None,
+) -> list[dict]:
+    params = {
+        "user_id": user_id,
+        "embedding": _vector_literal(query_embedding),
+        "candidate_k": candidate_k,
+    }
+    clauses = ["user_id = %(user_id)s"]
+    if document_ids:
+        clauses.append("document_id = ANY(%(document_ids)s)")
+        params["document_ids"] = document_ids
+    for index, (key, value) in enumerate((metadata_filters or {}).items()):
+        param_name = f"metadata_value_{index}"
+        clauses.append(f"metadata ->> '{key}' = %({param_name})s")
+        params[param_name] = str(value)
+    threshold_clause = ""
+    if similarity_threshold is not None:
+        threshold_clause = "WHERE score >= %(similarity_threshold)s"
+        params["similarity_threshold"] = similarity_threshold
+
+    sql = f"""
+        SELECT * FROM (
+            SELECT
+                chunk_id,
+                document_id,
+                user_id,
+                file_name,
+                page_number,
+                chunk_index,
+                chunk_text AS text,
+                metadata,
+                1 - (embedding <=> %(embedding)s::vector) AS score
+            FROM document_chunks
+            WHERE {" AND ".join(clauses)}
+            ORDER BY embedding <=> %(embedding)s::vector
+            LIMIT %(candidate_k)s
+        ) ranked
+        {threshold_clause}
+        ORDER BY score DESC
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return list(cur.fetchall())
+
+
+def fetch_neighbor_chunks(
+    user_id: str,
+    document_id: str,
+    chunk_index: int,
+    window: int = 1,
+) -> list[dict]:
+    sql = """
+        SELECT
+            chunk_id,
+            document_id,
+            file_name,
+            page_number,
+            chunk_index,
+            chunk_text AS text,
+            metadata
+        FROM document_chunks
+        WHERE user_id = %(user_id)s
+          AND document_id = %(document_id)s
+          AND chunk_index BETWEEN %(start_index)s AND %(end_index)s
+        ORDER BY chunk_index ASC
+    """
+    params = {
+        "user_id": user_id,
+        "document_id": document_id,
+        "start_index": max(0, int(chunk_index) - window),
+        "end_index": int(chunk_index) + window,
+    }
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return list(cur.fetchall())
+
+
 def delete_document_chunks(user_id: str, document_id: str) -> int:
     sql = "DELETE FROM document_chunks WHERE user_id = %s AND document_id = %s"
     with get_connection() as conn:

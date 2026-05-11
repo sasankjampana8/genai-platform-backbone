@@ -2,7 +2,7 @@
 
 CloudRAG Agent is a single document-grounded chatbot product built on AWS serverless infrastructure. It uses OpenAI for embeddings and answer generation, PostgreSQL pgvector for vector search, and AWS API Gateway, Lambda, S3, DynamoDB, SQS, and RDS for the backend.
 
-The current working stage is the RAG backbone plus a Next.js chat UI. The next planned upgrade is a production-style `/v1` API with Cognito authentication, chat/conversation/message APIs, memory, run traces, and observability.
+The current working stage is the RAG backbone plus a Next.js chat UI, protected `/v1` document APIs, Cognito auth foundations, memory APIs, and an async chat runtime foundation with orchestration, improved retrieval, tools, run summaries, and trace storage.
 
 CloudRAG is not a no-code agent builder, agent publishing platform, or user-defined tool marketplace. It is one configurable RAG chatbot that can be deployed, tested, destroyed, and rebuilt cleanly.
 
@@ -23,13 +23,15 @@ Current working capabilities:
 - Deploy/destroy the AWS stack with CloudFormation and GitHub Actions.
 - Run a Next.js UI that can upload, process, and ask questions against documents.
 
-Planned `/v1` production upgrade:
+Current `/v1` production upgrade:
 
 - Cognito authentication.
 - Authenticated document APIs that derive `user_id` from JWT claims.
 - Chat, message, run, memory, and trace metadata.
 - Async runtime worker for chat messages.
 - Internal orchestration for direct, RAG, web, chart, and hybrid routes.
+- Improved retrieval with vector candidates, lexical reranking, metadata filters, document diversity, and parent-neighbor context.
+- Mock web/API tool and SVG chart artifact tool.
 - OpenTelemetry-style tracing with optional external export.
 - Compatibility wrapper for the current ask-style flow.
 
@@ -37,7 +39,7 @@ Planned `/v1` production upgrade:
 
 Upload URL API -> direct S3 upload -> DynamoDB document metadata -> Start Processing API -> SQS -> worker Lambda -> text extraction -> chunking -> OpenAI embeddings -> PostgreSQL pgvector -> retrieval -> grounded answer with citations.
 
-Planned `/v1` chat flow:
+Current `/v1` chat flow foundation:
 
 Auth -> upload document -> process document -> create chat -> send message -> runtime queue -> runtime worker -> memory load -> retrieval -> optional tool context -> OpenAI answer -> assistant message -> run summary -> trace JSON in S3.
 
@@ -359,7 +361,24 @@ Current protected `/v1` memory routes:
 - `GET /v1/chats/{chat_id}/memory`
 - `POST /v1/chats/{chat_id}/memory/summarize`
 
-Planned `/v1` routes are documented in [docs/api_contract.md](docs/api_contract.md). The target shape moves the primary product API from direct `/ask` calls to:
+Current protected `/v1` chat/runtime routes:
+
+- `POST /v1/chats`
+- `GET /v1/chats`
+- `GET /v1/chats/{chat_id}`
+- `GET /v1/chats/{chat_id}/messages`
+- `POST /v1/chats/{chat_id}/messages`
+- `GET /v1/chats/{chat_id}/messages/{message_id}/response`
+
+Current protected `/v1` run and observability routes:
+
+- `GET /v1/runs`
+- `GET /v1/runs/{run_id}`
+- `GET /v1/runs/{run_id}/trace`
+- `GET /v1/observability/summary`
+- `GET /v1/observability/errors`
+
+`/v1` routes are documented in [docs/api_contract.md](docs/api_contract.md). The primary product API now moves from direct `/ask` calls to:
 
 ```text
 create chat -> send message -> poll response -> inspect run trace

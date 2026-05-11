@@ -9,3 +9,7 @@ sqs = boto3.client("sqs", region_name=settings.AWS_REGION)
 
 def send_processing_message(message: dict) -> None:
     sqs.send_message(QueueUrl=settings.PROCESS_QUEUE_URL, MessageBody=json.dumps(message))
+
+
+def send_runtime_message(message: dict) -> None:
+    sqs.send_message(QueueUrl=settings.RUNTIME_QUEUE_URL, MessageBody=json.dumps(message))

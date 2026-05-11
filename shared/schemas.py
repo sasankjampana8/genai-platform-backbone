@@ -228,6 +228,10 @@ class RuntimeOptions(CloudRAGModel):
     use_memory: bool = True
     use_web: bool = False
     allow_charts: bool = False
+    top_k: int = Field(default=5, ge=1, le=50)
+    similarity_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    metadata_filters: dict[str, str] = Field(default_factory=dict)
+    llm_model: str | None = Field(default=None, max_length=120)
 
 
 class SendMessageRequest(CloudRAGModel):
