@@ -62,7 +62,8 @@ Copy `.env.example` to `.env` for local work and fill in:
 
 - `OPENAI_API_KEY`
 - `PG_HOST`, `PG_PORT`, `PG_DATABASE`, `PG_USER`, `PG_PASSWORD`
-- AWS names such as `RAW_BUCKET`, `DOCUMENT_TABLE`, `PROCESS_JOB_TABLE`, and `PROCESS_QUEUE_URL`
+- AWS names such as `RAW_BUCKET`, `USER_TABLE`, `DOCUMENT_TABLE`, `PROCESS_JOB_TABLE`, and `PROCESS_QUEUE_URL`
+- Cognito values such as `COGNITO_USER_POOL_ID` and `COGNITO_CLIENT_ID`
 
 Install dependencies:
 
@@ -172,6 +173,8 @@ Files:
 The main stack creates the stage-1 RAG backbone:
 
 - S3 raw document bucket
+- Cognito User Pool and app client for `/v1/auth/*`
+- DynamoDB users table
 - DynamoDB document metadata table
 - DynamoDB process jobs table
 - SQS processing queue and DLQ
@@ -184,6 +187,7 @@ The main stack creates the stage-1 RAG backbone:
 
 It also deploys the code paths for:
 
+- Cognito signup, confirmation, login, refresh, and logout
 - Presigned upload URL generation
 - Document metadata/status
 - SQS async processing
@@ -332,6 +336,14 @@ Current Stage 1 routes:
 - `POST /ask`
 
 The Ask API reuses shared retrieval logic directly. It does not call the Retrieval API over HTTP.
+
+Current `/v1` auth routes:
+
+- `POST /v1/auth/signup`
+- `POST /v1/auth/confirm`
+- `POST /v1/auth/login`
+- `POST /v1/auth/refresh`
+- `POST /v1/auth/logout`
 
 Planned `/v1` routes are documented in [docs/api_contract.md](docs/api_contract.md). The target shape moves the primary product API from direct `/ask` calls to:
 

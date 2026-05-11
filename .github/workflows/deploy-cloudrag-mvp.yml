@@ -109,6 +109,7 @@ jobs:
               DbIngressCidr="${{ inputs.db_ingress_cidr }}" \
               OpenAIApiKey="${{ secrets.OPENAI_API_KEY }}" \
               LambdaCodeS3Bucket="${ARTIFACT_BUCKET}" \
+              AuthCodeS3Key="${ARTIFACT_PREFIX}/auth_handler.zip" \
               UploadUrlCodeS3Key="${ARTIFACT_PREFIX}/upload_url_handler.zip" \
               DocumentStatusCodeS3Key="${ARTIFACT_PREFIX}/document_status_handler.zip" \
               StartProcessCodeS3Key="${ARTIFACT_PREFIX}/start_process_handler.zip" \

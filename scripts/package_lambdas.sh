@@ -29,6 +29,7 @@ package_lambda() {
 }
 
 package_lambda "upload_url_handler" "upload_url_handler.zip"
+package_lambda "auth_handler" "auth_handler.zip"
 package_lambda "document_status_handler" "document_status_handler.zip"
 package_lambda "start_process_handler" "start_process_handler.zip"
 package_lambda "process_status_handler" "process_status_handler.zip"

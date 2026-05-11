@@ -43,6 +43,8 @@ Parameters:
     Default: gpt-4.1-mini
   LambdaCodeS3Bucket:
     Type: String
+  AuthCodeS3Key:
+    Type: String
   UploadUrlCodeS3Key:
     Type: String
   DocumentStatusCodeS3Key:
@@ -62,6 +64,55 @@ Conditions:
   HasRawBucketName: !Not [!Equals [!Ref RawBucketName, ""]]
 
 Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${ProjectName}-${EnvironmentName}-users
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      MfaConfiguration: "OFF"
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          RequireUppercase: true
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: name
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub ${ProjectName}-${EnvironmentName}-web-client
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+      AccessTokenValidity: 15
+      IdTokenValidity: 15
+      RefreshTokenValidity: 7
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+
   RawDocumentsBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -81,6 +132,18 @@ Resources:
             AllowedMethods: [GET, HEAD, POST, PUT]
             AllowedOrigins: ["*"]
             MaxAge: 3000
+
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: cloudrag_users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
 
   DocumentsTable:
     Type: AWS::DynamoDB::Table
@@ -229,6 +292,38 @@ Resources:
       BackupRetentionPeriod: 0
       DeletionProtection: false
       AutoMinorVersionUpgrade: true
+
+  AuthRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-${EnvironmentName}-auth-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: AuthAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cognito-idp:SignUp
+                  - cognito-idp:ConfirmSignUp
+                  - cognito-idp:InitiateAuth
+                  - cognito-idp:GlobalSignOut
+                  - cognito-idp:AdminGetUser
+                Resource: !GetAtt UserPool.Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt UsersTable.Arn
 
   UploadUrlRole:
     Type: AWS::IAM::Role
@@ -639,6 +734,24 @@ Resources:
           DEFAULT_TOP_K: "5"
           DEFAULT_SIMILARITY_THRESHOLD: "0.0"
 
+  AuthFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: cloudrag-auth-handler
+      Runtime: python3.13
+      Handler: handler.lambda_handler
+      Role: !GetAtt AuthRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref AuthCodeS3Key
+      Environment:
+        Variables:
+          USER_TABLE: !Ref UsersTable
+          COGNITO_USER_POOL_ID: !Ref UserPool
+          COGNITO_CLIENT_ID: !Ref UserPoolClient
+
   ProcessingWorkerEventSource:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -662,6 +775,27 @@ Resources:
       ApiId: !Ref HttpApi
       StageName: dev
       AutoDeploy: true
+
+  JwtAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref HttpApi
+      AuthorizerType: JWT
+      IdentitySource:
+        - $request.header.Authorization
+      Name: !Sub ${ProjectName}-${EnvironmentName}-jwt-authorizer
+      JwtConfiguration:
+        Audience:
+          - !Ref UserPoolClient
+        Issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
+
+  AuthIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt AuthFunction.Arn
+      PayloadFormatVersion: "2.0"
 
   UploadUrlIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -711,6 +845,41 @@ Resources:
       IntegrationUri: !GetAtt AskFunction.Arn
       PayloadFormatVersion: "2.0"
 
+  AuthSignupRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: POST /v1/auth/signup
+      Target: !Sub integrations/${AuthIntegration}
+
+  AuthConfirmRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: POST /v1/auth/confirm
+      Target: !Sub integrations/${AuthIntegration}
+
+  AuthLoginRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: POST /v1/auth/login
+      Target: !Sub integrations/${AuthIntegration}
+
+  AuthRefreshRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: POST /v1/auth/refresh
+      Target: !Sub integrations/${AuthIntegration}
+
+  AuthLogoutRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: POST /v1/auth/logout
+      Target: !Sub integrations/${AuthIntegration}
+
   UploadUrlRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -752,6 +921,14 @@ Resources:
       ApiId: !Ref HttpApi
       RouteKey: POST /ask
       Target: !Sub integrations/${AskIntegration}
+
+  AuthInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AuthFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*/*
 
   UploadUrlInvokePermission:
     Type: AWS::Lambda::Permission
@@ -804,8 +981,14 @@ Resources:
 Outputs:
   ApiBaseUrl:
     Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/dev
+  CognitoUserPoolId:
+    Value: !Ref UserPool
+  CognitoUserPoolClientId:
+    Value: !Ref UserPoolClient
   RawBucket:
     Value: !Ref RawDocumentsBucket
+  UsersTableName:
+    Value: !Ref UsersTable
   DocumentsTableName:
     Value: !Ref DocumentsTable
   ProcessJobsTableName:

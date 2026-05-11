@@ -18,9 +18,12 @@ def _float(name: str, default: float) -> float:
 class Settings:
     AWS_REGION: str = os.getenv("AWS_REGION", "ap-south-1")
     RAW_BUCKET: str = os.getenv("RAW_BUCKET", "")
+    USER_TABLE: str = os.getenv("USER_TABLE", "cloudrag_users")
     DOCUMENT_TABLE: str = os.getenv("DOCUMENT_TABLE", "cloudrag_documents")
     PROCESS_JOB_TABLE: str = os.getenv("PROCESS_JOB_TABLE", "cloudrag_process_jobs")
     PROCESS_QUEUE_URL: str = os.getenv("PROCESS_QUEUE_URL", "")
+    COGNITO_USER_POOL_ID: str = os.getenv("COGNITO_USER_POOL_ID", "")
+    COGNITO_CLIENT_ID: str = os.getenv("COGNITO_CLIENT_ID", "")
     UPLOAD_EXPIRY_SECONDS: int = _int("UPLOAD_EXPIRY_SECONDS", 900)
     MAX_FILES: int = _int("MAX_FILES", 10)
     MAX_FILE_SIZE_BYTES: int = _int("MAX_FILE_SIZE_BYTES", 10_485_760)
