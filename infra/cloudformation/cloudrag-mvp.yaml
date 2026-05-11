@@ -45,6 +45,10 @@ Parameters:
     Type: String
   AuthCodeS3Key:
     Type: String
+  V1DocumentsCodeS3Key:
+    Type: String
+  MemoryCodeS3Key:
+    Type: String
   UploadUrlCodeS3Key:
     Type: String
   DocumentStatusCodeS3Key:
@@ -153,9 +157,22 @@ Resources:
       AttributeDefinitions:
         - AttributeName: document_id
           AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
       KeySchema:
         - AttributeName: document_id
           KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: user_id-created_at-index
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
 
   ProcessJobsTable:
     Type: AWS::DynamoDB::Table
@@ -165,9 +182,88 @@ Resources:
       AttributeDefinitions:
         - AttributeName: process_id
           AttributeType: S
+        - AttributeName: document_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
       KeySchema:
         - AttributeName: process_id
           KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: document_id-created_at-index
+          KeySchema:
+            - AttributeName: document_id
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  ChatsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: cloudrag_chats
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: chat_id
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: updated_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: chat_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: user_id-updated_at-index
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+            - AttributeName: updated_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  MessagesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: cloudrag_messages
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: chat_id
+          AttributeType: S
+        - AttributeName: message_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: chat_id
+          KeyType: HASH
+        - AttributeName: message_id
+          KeyType: RANGE
+
+  MemoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: cloudrag_memory
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: memory_id
+          AttributeType: S
+        - AttributeName: chat_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: memory_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: chat_id-created_at-index
+          KeySchema:
+            - AttributeName: chat_id
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
 
   ProcessingDLQ:
     Type: AWS::SQS::Queue
@@ -324,6 +420,81 @@ Resources:
                   - dynamodb:PutItem
                   - dynamodb:UpdateItem
                 Resource: !GetAtt UsersTable.Arn
+
+  V1DocumentsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-${EnvironmentName}-v1-documents-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: V1DocumentsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt DocumentsTable.Arn
+                  - !Sub ${DocumentsTable.Arn}/index/*
+                  - !GetAtt ProcessJobsTable.Arn
+                  - !Sub ${ProcessJobsTable.Arn}/index/*
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub ${RawDocumentsBucket.Arn}/raw/*
+                  - !Sub ${RawDocumentsBucket.Arn}/processed/*
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt RawDocumentsBucket.Arn
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt ProcessingQueue.Arn
+
+  MemoryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-${EnvironmentName}-memory-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: MemoryAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                Resource:
+                  - !GetAtt ChatsTable.Arn
+                  - !Sub ${ChatsTable.Arn}/index/*
+                  - !GetAtt MessagesTable.Arn
+                  - !GetAtt MemoryTable.Arn
+                  - !Sub ${MemoryTable.Arn}/index/*
 
   UploadUrlRole:
     Type: AWS::IAM::Role
@@ -752,6 +923,64 @@ Resources:
           COGNITO_USER_POOL_ID: !Ref UserPool
           COGNITO_CLIENT_ID: !Ref UserPoolClient
 
+  V1DocumentsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: cloudrag-v1-documents-handler
+      Runtime: python3.13
+      Handler: handler.lambda_handler
+      Role: !GetAtt V1DocumentsRole.Arn
+      Timeout: 60
+      MemorySize: 1024
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref V1DocumentsCodeS3Key
+      Environment:
+        Variables:
+          RAW_BUCKET: !Ref RawDocumentsBucket
+          USER_TABLE: !Ref UsersTable
+          DOCUMENT_TABLE: !Ref DocumentsTable
+          PROCESS_JOB_TABLE: !Ref ProcessJobsTable
+          CHAT_TABLE: !Ref ChatsTable
+          MESSAGE_TABLE: !Ref MessagesTable
+          MEMORY_TABLE: !Ref MemoryTable
+          PROCESS_QUEUE_URL: !Ref ProcessingQueue
+          UPLOAD_EXPIRY_SECONDS: "900"
+          MAX_FILES: "10"
+          MAX_FILE_SIZE_BYTES: "10485760"
+          OPENAI_API_KEY: !Ref OpenAIApiKey
+          OPENAI_EMBEDDING_MODEL: !Ref OpenAIEmbeddingModel
+          OPENAI_LLM_MODEL: !Ref OpenAILlmModel
+          PG_HOST: !GetAtt PostgresDb.Endpoint.Address
+          PG_PORT: !GetAtt PostgresDb.Endpoint.Port
+          PG_DATABASE: !Ref DbName
+          PG_USER: !Ref DbUsername
+          PG_PASSWORD: !Ref DbPassword
+          CHUNK_SIZE: "800"
+          CHUNK_OVERLAP: "120"
+          EMBEDDING_BATCH_SIZE: "50"
+          DEFAULT_TOP_K: "5"
+          DEFAULT_SIMILARITY_THRESHOLD: "0.0"
+
+  MemoryFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: cloudrag-memory-handler
+      Runtime: python3.13
+      Handler: handler.lambda_handler
+      Role: !GetAtt MemoryRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref MemoryCodeS3Key
+      Environment:
+        Variables:
+          USER_TABLE: !Ref UsersTable
+          CHAT_TABLE: !Ref ChatsTable
+          MESSAGE_TABLE: !Ref MessagesTable
+          MEMORY_TABLE: !Ref MemoryTable
+
   ProcessingWorkerEventSource:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -795,6 +1024,22 @@ Resources:
       ApiId: !Ref HttpApi
       IntegrationType: AWS_PROXY
       IntegrationUri: !GetAtt AuthFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  V1DocumentsIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt V1DocumentsFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  MemoryIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt MemoryFunction.Arn
       PayloadFormatVersion: "2.0"
 
   UploadUrlIntegration:
@@ -880,6 +1125,78 @@ Resources:
       RouteKey: POST /v1/auth/logout
       Target: !Sub integrations/${AuthIntegration}
 
+  V1DocumentsUploadUrlRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: POST /v1/documents/upload-url
+      Target: !Sub integrations/${V1DocumentsIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  V1DocumentsListRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /v1/documents
+      Target: !Sub integrations/${V1DocumentsIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  V1DocumentDetailRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /v1/documents/{document_id}
+      Target: !Sub integrations/${V1DocumentsIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  V1DocumentProcessRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: POST /v1/documents/{document_id}/process
+      Target: !Sub integrations/${V1DocumentsIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  V1DocumentProcessStatusRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /v1/documents/{document_id}/processes/{process_id}
+      Target: !Sub integrations/${V1DocumentsIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  V1DocumentDeleteRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: DELETE /v1/documents/{document_id}
+      Target: !Sub integrations/${V1DocumentsIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  MemoryGetRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /v1/chats/{chat_id}/memory
+      Target: !Sub integrations/${MemoryIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  MemorySummarizeRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: POST /v1/chats/{chat_id}/memory/summarize
+      Target: !Sub integrations/${MemoryIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
   UploadUrlRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -926,6 +1243,22 @@ Resources:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref AuthFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*/*
+
+  V1DocumentsInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref V1DocumentsFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*/*
+
+  MemoryInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref MemoryFunction
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*/*
@@ -993,6 +1326,12 @@ Outputs:
     Value: !Ref DocumentsTable
   ProcessJobsTableName:
     Value: !Ref ProcessJobsTable
+  ChatsTableName:
+    Value: !Ref ChatsTable
+  MessagesTableName:
+    Value: !Ref MessagesTable
+  MemoryTableName:
+    Value: !Ref MemoryTable
   ProcessingQueueUrl:
     Value: !Ref ProcessingQueue
   DbEndpoint:

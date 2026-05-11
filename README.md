@@ -345,6 +345,20 @@ Current `/v1` auth routes:
 - `POST /v1/auth/refresh`
 - `POST /v1/auth/logout`
 
+Current protected `/v1` document routes:
+
+- `POST /v1/documents/upload-url`
+- `GET /v1/documents`
+- `GET /v1/documents/{document_id}`
+- `POST /v1/documents/{document_id}/process`
+- `GET /v1/documents/{document_id}/processes/{process_id}`
+- `DELETE /v1/documents/{document_id}`
+
+Current protected `/v1` memory routes:
+
+- `GET /v1/chats/{chat_id}/memory`
+- `POST /v1/chats/{chat_id}/memory/summarize`
+
 Planned `/v1` routes are documented in [docs/api_contract.md](docs/api_contract.md). The target shape moves the primary product API from direct `/ask` calls to:
 
 ```text

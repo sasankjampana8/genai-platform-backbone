@@ -48,3 +48,12 @@ def put_json(bucket: str, key: str, data: dict) -> None:
         Body=json.dumps(data).encode("utf-8"),
         ContentType="application/json",
     )
+
+
+def delete_prefix(bucket: str, prefix: str) -> None:
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        objects = [{"Key": item["Key"]} for item in page.get("Contents", [])]
+        if objects:
+            logger.info("Deleting %s objects from s3://%s/%s", len(objects), bucket, prefix)
+            s3.delete_objects(Bucket=bucket, Delete={"Objects": objects})

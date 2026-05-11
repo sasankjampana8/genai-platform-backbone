@@ -110,6 +110,8 @@ jobs:
               OpenAIApiKey="${{ secrets.OPENAI_API_KEY }}" \
               LambdaCodeS3Bucket="${ARTIFACT_BUCKET}" \
               AuthCodeS3Key="${ARTIFACT_PREFIX}/auth_handler.zip" \
+              V1DocumentsCodeS3Key="${ARTIFACT_PREFIX}/v1_documents_handler.zip" \
+              MemoryCodeS3Key="${ARTIFACT_PREFIX}/memory_handler.zip" \
               UploadUrlCodeS3Key="${ARTIFACT_PREFIX}/upload_url_handler.zip" \
               DocumentStatusCodeS3Key="${ARTIFACT_PREFIX}/document_status_handler.zip" \
               StartProcessCodeS3Key="${ARTIFACT_PREFIX}/start_process_handler.zip" \

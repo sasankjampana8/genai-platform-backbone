@@ -97,3 +97,13 @@ def search_chunks(
         with conn.cursor() as cur:
             cur.execute(sql, params)
             return list(cur.fetchall())
+
+
+def delete_document_chunks(user_id: str, document_id: str) -> int:
+    sql = "DELETE FROM document_chunks WHERE user_id = %s AND document_id = %s"
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (user_id, document_id))
+            deleted = cur.rowcount
+        conn.commit()
+    return deleted
