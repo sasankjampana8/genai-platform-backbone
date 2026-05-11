@@ -10,7 +10,18 @@ rm -rf "${DIST_DIR}" "${BUILD_DIR}"
 mkdir -p "${DIST_DIR}" "${DEPS_DIR}"
 
 python -m pip install --upgrade pip
-python -m pip install -r "${ROOT_DIR}/requirements-lambda.txt" -t "${DEPS_DIR}"
+
+PIP_INSTALL_ARGS=(-r "${ROOT_DIR}/requirements-lambda.txt" -t "${DEPS_DIR}")
+if [[ -n "${LAMBDA_PIP_PLATFORM:-}" ]]; then
+  PIP_INSTALL_ARGS+=(
+    --platform "${LAMBDA_PIP_PLATFORM}"
+    --implementation cp
+    --python-version "${LAMBDA_PIP_PYTHON_VERSION:-3.13}"
+    --only-binary=:all:
+  )
+fi
+
+python -m pip install "${PIP_INSTALL_ARGS[@]}"
 
 package_lambda() {
   local source_dir="$1"
