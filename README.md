@@ -1,12 +1,45 @@
-# CloudRAG Agent — Serverless RAG MVP
+# CloudRAG Agent — OpenAI + pgvector Serverless RAG Chatbot
 
-A serverless document RAG system that supports direct S3 uploads, async document processing, chunking, embedding, pgvector retrieval, grounded LLM answers with citations, and a mock Next.js chat interface.
+CloudRAG Agent is a single document-grounded chatbot product built on AWS serverless infrastructure. It uses OpenAI for embeddings and answer generation, PostgreSQL pgvector for vector search, and AWS API Gateway, Lambda, S3, DynamoDB, SQS, and RDS for the backend.
 
-This is MVP 1: the RAG backbone plus a mock chat UI. It intentionally excludes Cognito/auth, web search, LangGraph orchestration, multi-agent workflow, OCR, streaming, reranking, Kubernetes, ECS, Bedrock, and full SaaS multi-tenancy.
+The current working stage is the RAG backbone plus a Next.js chat UI. The next planned upgrade is a production-style `/v1` API with Cognito authentication, chat/conversation/message APIs, memory, run traces, and observability.
+
+CloudRAG is not a no-code agent builder, agent publishing platform, or user-defined tool marketplace. It is one configurable RAG chatbot that can be deployed, tested, destroyed, and rebuilt cleanly.
+
+## Current Stage
+
+Current working capabilities:
+
+- Generate S3 presigned POST data for PDF/DOCX upload.
+- Upload documents directly to S3.
+- Store document metadata in DynamoDB.
+- Queue async processing through SQS.
+- Extract text from PDF/DOCX.
+- Chunk extracted text.
+- Generate embeddings with OpenAI.
+- Store chunks and embeddings in PostgreSQL pgvector.
+- Retrieve relevant chunks by semantic search.
+- Generate grounded OpenAI answers with citations.
+- Deploy/destroy the AWS stack with CloudFormation and GitHub Actions.
+- Run a Next.js UI that can upload, process, and ask questions against documents.
+
+Planned `/v1` production upgrade:
+
+- Cognito authentication.
+- Authenticated document APIs that derive `user_id` from JWT claims.
+- Chat, message, run, memory, and trace metadata.
+- Async runtime worker for chat messages.
+- Internal orchestration for direct, RAG, web, chart, and hybrid routes.
+- OpenTelemetry-style tracing with optional external export.
+- Compatibility wrapper for the current ask-style flow.
 
 ## Architecture Flow
 
 Upload URL API -> direct S3 upload -> DynamoDB document metadata -> Start Processing API -> SQS -> worker Lambda -> text extraction -> chunking -> OpenAI embeddings -> PostgreSQL pgvector -> retrieval -> grounded answer with citations.
+
+Planned `/v1` chat flow:
+
+Auth -> upload document -> process document -> create chat -> send message -> runtime queue -> runtime worker -> memory load -> retrieval -> optional tool context -> OpenAI answer -> assistant message -> run summary -> trace JSON in S3.
 
 ## Project Structure
 
@@ -88,9 +121,9 @@ python scripts/local_ask_test.py \
   --document-ids doc_local_001
 ```
 
-## Mock Chat UI
+## Chat UI
 
-The Next.js mock frontend lives in `frontend/`.
+The Next.js frontend lives in `frontend/`.
 
 ```bash
 cd frontend
@@ -100,13 +133,16 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-The UI currently uses mock data and includes:
+The UI currently includes:
 
-- Chat workspace
-- Document store panel
-- Settings panel
-- Chat history
-- Citation chips
+- Chat workspace.
+- Document store panel.
+- Settings panel.
+- File upload through the backend presigned upload API.
+- Start-processing action.
+- Process status polling.
+- Ask flow through the current answer API.
+- Citation chips.
 
 ## AWS Resources Required
 
@@ -286,6 +322,8 @@ Do not use administrator or full-access managed policies for the MVP.
 
 ## API Routes
 
+Current Stage 1 routes:
+
 - `POST /documents/upload-url`
 - `GET /documents/{document_id}`
 - `POST /documents/{document_id}/process`
@@ -294,6 +332,14 @@ Do not use administrator or full-access managed policies for the MVP.
 - `POST /ask`
 
 The Ask API reuses shared retrieval logic directly. It does not call the Retrieval API over HTTP.
+
+Planned `/v1` routes are documented in [docs/api_contract.md](docs/api_contract.md). The target shape moves the primary product API from direct `/ask` calls to:
+
+```text
+create chat -> send message -> poll response -> inspect run trace
+```
+
+`/v1/ask` will remain as a compatibility wrapper over the new chat/message runtime flow.
 
 ## Manual Lambda Deployment Notes
 
@@ -373,13 +419,14 @@ Current tests cover validation, chunking, prompt building, and DOCX extraction.
 
 ## Future Upgrades
 
-- MVP 2: hybrid search, metadata filters, reranking, chunk previews.
-- MVP 3: LangGraph agentic orchestration.
-- MVP 4: tools such as calculator, web search, chart/table generation.
-- MVP 5: observability with trace IDs, prompt logs, latency, tokens, and cost.
-- MVP 6: frontend upload, status, chat, and retrieved chunks panels.
-- MVP 7: Cognito auth, user isolation, tenant support.
-- MVP 8: SAM/CDK/Terraform, GitHub Actions, Lambda container image builds.
+- Stage 2: `/v1` API contract, Pydantic schemas, global response format, and request context.
+- Stage 3: Cognito auth and JWT-based `user_id` extraction.
+- Stage 4: chat, message, run, memory, and trace metadata APIs.
+- Stage 5: async runtime worker for chat messages.
+- Stage 6: better retrieval with metadata filters, hybrid search, reranking, and chunk previews.
+- Stage 7: optional web/API tool and chart artifact tool.
+- Stage 8: observability with trace IDs, spans, prompt metadata, latency, token usage, cost estimate, and optional Langfuse/OTLP export.
+- Stage 9: production networking, private RDS, stronger IAM, and deployment hardening.
 
 ## Portfolio Positioning
 
