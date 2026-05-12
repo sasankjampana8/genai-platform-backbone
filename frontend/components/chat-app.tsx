@@ -87,7 +87,7 @@ type AuthTokens = {
   expires_in?: number;
 };
 
-const DEFAULT_API_BASE_URL = "https://xqyn795842.execute-api.ap-south-1.amazonaws.com/dev";
+const DEFAULT_API_BASE_URL = process.env.NEXT_PUBLIC_CLOUDRAG_API_BASE_URL ?? "";
 const PROCESSING_STATUSES = new Set([
   "QUEUED",
   "PROCESSING",

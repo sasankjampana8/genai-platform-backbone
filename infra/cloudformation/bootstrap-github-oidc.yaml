@@ -83,6 +83,17 @@ Resources:
                   - logs:*
                   - rds:*
                   - ec2:*
+                  - cognito-idp:CreateUserPool
+                  - cognito-idp:DeleteUserPool
+                  - cognito-idp:DescribeUserPool
+                  - cognito-idp:UpdateUserPool
+                  - cognito-idp:CreateUserPoolClient
+                  - cognito-idp:DeleteUserPoolClient
+                  - cognito-idp:DescribeUserPoolClient
+                  - cognito-idp:UpdateUserPoolClient
+                  - cognito-idp:ListUserPoolClients
+                  - cognito-idp:TagResource
+                  - cognito-idp:UntagResource
                   - iam:CreateRole
                   - iam:GetRole
                   - iam:UpdateRole
