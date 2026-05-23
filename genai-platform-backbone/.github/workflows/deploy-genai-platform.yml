@@ -1,0 +1,45 @@
+name: Deploy GenAI Platform Backbone
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: genai-platform-backbone
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+
+      - name: Validate CloudFormation
+        run: |
+          aws cloudformation validate-template \
+            --template-body file://infra/cloudformation/genai-platform-backbone.yaml
+
+      - name: Deploy CloudFormation starter
+        run: |
+          aws cloudformation deploy \
+            --template-file infra/cloudformation/genai-platform-backbone.yaml \
+            --stack-name "${{ vars.GENAI_STACK_NAME || 'genai-platform-backbone-dev' }}" \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              ContainerImage="${{ vars.CONTAINER_IMAGE }}" \
+              DatabasePassword="${{ secrets.DB_PASSWORD }}" \
+              OpenAIApiKey="${{ secrets.OPENAI_API_KEY }}"
+
+      - name: Show outputs
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "${{ vars.GENAI_STACK_NAME || 'genai-platform-backbone-dev' }}" \
+            --query "Stacks[0].Outputs"
+

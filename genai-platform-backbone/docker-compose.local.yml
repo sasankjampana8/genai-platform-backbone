@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: genai_backbone
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - genai_pgdata:/var/lib/postgresql/data
+
+  api:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/genai_backbone
+      MOCK_MODE: "true"
+      AUTH_DISABLED: "true"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+
+volumes:
+  genai_pgdata:
+
