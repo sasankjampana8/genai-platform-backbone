@@ -54,6 +54,21 @@ jobs:
           aws cloudformation validate-template \
             --template-body file://infra/cloudformation/genai-platform-backbone.yaml
 
+      - name: Remove failed rollback stack if present
+        run: |
+          STACK_NAME="${{ vars.GENAI_STACK_NAME || 'genai-platform-backbone-dev' }}"
+          STACK_STATUS="$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --query "Stacks[0].StackStatus" \
+            --output text 2>/dev/null || true)"
+          if [ "$STACK_STATUS" = "ROLLBACK_COMPLETE" ]; then
+            echo "Deleting $STACK_NAME because it is in ROLLBACK_COMPLETE state."
+            aws cloudformation delete-stack --stack-name "$STACK_NAME"
+            aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME"
+          else
+            echo "Stack status is '${STACK_STATUS:-not found}'. No failed rollback cleanup needed."
+          fi
+
       - name: Deploy CloudFormation starter
         run: |
           aws cloudformation deploy \
