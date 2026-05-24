@@ -10,9 +10,6 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: genai-platform-backbone
     steps:
       - uses: actions/checkout@v4
 
@@ -42,4 +39,3 @@ jobs:
           aws cloudformation describe-stacks \
             --stack-name "${{ vars.GENAI_STACK_NAME || 'genai-platform-backbone-dev' }}" \
             --query "Stacks[0].Outputs"
-

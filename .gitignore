@@ -1,40 +1,12 @@
-# Python
 .venv/
-venv/
-venv313/
 __pycache__/
-*.py[cod]
-*$py.class
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# Environment and secrets
+*.pyc
 .env
-.env.*
-!.env.example
-*.pem
-*.key
-
-# Local data and outputs
-local_data/
-local_outputs/
-*.log
-
-# Build/package outputs
+.pytest_cache/
 dist/
 build/
-package/
-lambda_package/
+.mypy_cache/
+.ruff_cache/
+local_data/
+local_outputs/
 
-# Next.js frontend
-frontend/node_modules/
-frontend/.next/
-frontend/out/
-frontend/.env.local
-frontend/.env*.local
-
-# OS/editor
-.DS_Store
-.idea/
-.vscode/
