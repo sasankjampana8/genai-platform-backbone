@@ -222,7 +222,6 @@ Resources:
     Properties:
       DBInstanceIdentifier: !Sub "${ProjectName}-${EnvironmentName}-postgres"
       Engine: postgres
-      EngineVersion: "16.4"
       DBInstanceClass: db.t4g.micro
       AllocatedStorage: 20
       DBName: !Ref DatabaseName
@@ -406,4 +405,3 @@ Outputs:
     Value: !Ref UserPoolClient
   DatabaseEndpoint:
     Value: !GetAtt Database.Endpoint.Address
-
