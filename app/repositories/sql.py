@@ -59,11 +59,11 @@ class SqlRepository:
         with get_connection() as conn:
             row = conn.execute(
                 """
-                INSERT INTO users (user_id, cognito_sub, email, display_name, status)
+                INSERT INTO app_users (user_id, cognito_sub, email, display_name, status)
                 VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (cognito_sub) DO UPDATE
-                SET email = COALESCE(EXCLUDED.email, users.email),
-                    display_name = COALESCE(EXCLUDED.display_name, users.display_name),
+                SET email = COALESCE(EXCLUDED.email, app_users.email),
+                    display_name = COALESCE(EXCLUDED.display_name, app_users.display_name),
                     status = EXCLUDED.status,
                     updated_at = now()
                 RETURNING *
@@ -77,7 +77,7 @@ class SqlRepository:
         with get_connection() as conn:
             row = conn.execute(
                 """
-                INSERT INTO knowledge_bases (user_id, name, description)
+                INSERT INTO app_knowledge_bases (user_id, name, description)
                 VALUES (%s, %s, %s)
                 RETURNING *
                 """,
@@ -89,7 +89,7 @@ class SqlRepository:
     def list_knowledge_bases(self, user_id: UUID) -> list[dict[str, Any]]:
         with get_connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM knowledge_bases WHERE user_id = %s ORDER BY created_at DESC",
+                "SELECT * FROM app_knowledge_bases WHERE user_id = %s ORDER BY created_at DESC",
                 (user_id,),
             ).fetchall()
             return [dict(row) for row in rows]
@@ -97,7 +97,7 @@ class SqlRepository:
     def get_knowledge_base(self, user_id: UUID, knowledge_base_id: UUID) -> dict[str, Any]:
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT * FROM knowledge_bases WHERE user_id = %s AND knowledge_base_id = %s",
+                "SELECT * FROM app_knowledge_bases WHERE user_id = %s AND knowledge_base_id = %s",
                 (user_id, knowledge_base_id),
             ).fetchone()
             if not row:
@@ -108,7 +108,7 @@ class SqlRepository:
         with get_connection() as conn:
             row = conn.execute(
                 """
-                INSERT INTO documents (
+                INSERT INTO app_documents (
                     document_id, user_id, knowledge_base_id, file_name, content_type,
                     file_size_bytes, s3_key, status, metadata
                 )
@@ -133,7 +133,7 @@ class SqlRepository:
     def list_documents(self, user_id: UUID) -> list[dict[str, Any]]:
         with get_connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM documents WHERE user_id = %s AND status <> 'deleted' ORDER BY created_at DESC",
+                "SELECT * FROM app_documents WHERE user_id = %s AND status <> 'deleted' ORDER BY created_at DESC",
                 (user_id,),
             ).fetchall()
             return [dict(row) for row in rows]
@@ -141,7 +141,7 @@ class SqlRepository:
     def get_document(self, user_id: UUID, document_id: UUID) -> dict[str, Any]:
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT * FROM documents WHERE user_id = %s AND document_id = %s AND status <> 'deleted'",
+                "SELECT * FROM app_documents WHERE user_id = %s AND document_id = %s AND status <> 'deleted'",
                 (user_id, document_id),
             ).fetchone()
             if not row:
@@ -151,7 +151,7 @@ class SqlRepository:
     def update_document_status(self, user_id: UUID, document_id: UUID, status: str) -> None:
         with get_connection() as conn:
             conn.execute(
-                "UPDATE documents SET status = %s, updated_at = now() WHERE user_id = %s AND document_id = %s",
+                "UPDATE app_documents SET status = %s, updated_at = now() WHERE user_id = %s AND document_id = %s",
                 (status, user_id, document_id),
             )
             conn.commit()
@@ -168,7 +168,7 @@ class SqlRepository:
         with get_connection() as conn:
             row = conn.execute(
                 """
-                INSERT INTO processing_jobs (
+                INSERT INTO app_processing_jobs (
                     user_id, document_id, knowledge_base_id, chunking_strategy, embedding_model
                 )
                 VALUES (%s, %s, %s, %s, %s)
@@ -182,7 +182,7 @@ class SqlRepository:
     def get_processing_job(self, user_id: UUID, processing_job_id: UUID) -> dict[str, Any]:
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT * FROM processing_jobs WHERE user_id = %s AND processing_job_id = %s",
+                "SELECT * FROM app_processing_jobs WHERE user_id = %s AND processing_job_id = %s",
                 (user_id, processing_job_id),
             ).fetchone()
             if not row:
@@ -198,14 +198,14 @@ class SqlRepository:
         values = list(updates.values()) + [processing_job_id]
         with get_connection() as conn:
             conn.execute(
-                f"UPDATE processing_jobs SET {assignments}, updated_at = now() WHERE processing_job_id = %s",
+                f"UPDATE app_processing_jobs SET {assignments}, updated_at = now() WHERE processing_job_id = %s",
                 values,
             )
             conn.commit()
 
     def delete_chunks_for_document(self, user_id: UUID, document_id: UUID) -> None:
         with get_connection() as conn:
-            conn.execute("DELETE FROM chunks WHERE user_id = %s AND document_id = %s", (user_id, document_id))
+            conn.execute("DELETE FROM app_chunks WHERE user_id = %s AND document_id = %s", (user_id, document_id))
             conn.commit()
 
     def insert_chunks(self, chunks: list[dict[str, Any]]) -> int:
@@ -216,7 +216,7 @@ class SqlRepository:
                 for chunk in chunks:
                     cur.execute(
                         """
-                        INSERT INTO chunks (
+                        INSERT INTO app_chunks (
                             chunk_id, user_id, document_id, knowledge_base_id, parent_chunk_id,
                             chunk_index, chunk_text, page_number, embedding, embedding_model,
                             chunking_strategy, metadata
@@ -262,7 +262,7 @@ class SqlRepository:
                 f"""
                 SELECT chunk_id, document_id, knowledge_base_id, chunk_text AS text,
                        page_number, metadata, 1 - (embedding <=> %s::vector) AS score
-                FROM chunks
+                FROM app_chunks
                 WHERE {" AND ".join(where)}
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
@@ -290,7 +290,7 @@ class SqlRepository:
                 f"""
                 SELECT chunk_id, document_id, knowledge_base_id, chunk_text AS text, page_number, metadata,
                        ts_rank_cd(search_vector, plainto_tsquery('english', %s)) AS score
-                FROM chunks
+                FROM app_chunks
                 WHERE {" AND ".join(where)}
                 ORDER BY score DESC
                 LIMIT %s
@@ -302,7 +302,7 @@ class SqlRepository:
     def create_chat(self, *, user_id: UUID, title: str, knowledge_base_id: UUID | None) -> dict[str, Any]:
         with get_connection() as conn:
             row = conn.execute(
-                "INSERT INTO chats (user_id, title, knowledge_base_id) VALUES (%s, %s, %s) RETURNING *",
+                "INSERT INTO app_chats (user_id, title, knowledge_base_id) VALUES (%s, %s, %s) RETURNING *",
                 (user_id, title, knowledge_base_id),
             ).fetchone()
             conn.commit()
@@ -310,12 +310,12 @@ class SqlRepository:
 
     def list_chats(self, user_id: UUID) -> list[dict[str, Any]]:
         with get_connection() as conn:
-            rows = conn.execute("SELECT * FROM chats WHERE user_id = %s ORDER BY updated_at DESC", (user_id,)).fetchall()
+            rows = conn.execute("SELECT * FROM app_chats WHERE user_id = %s ORDER BY updated_at DESC", (user_id,)).fetchall()
             return [dict(row) for row in rows]
 
     def get_chat(self, user_id: UUID, chat_id: UUID) -> dict[str, Any]:
         with get_connection() as conn:
-            row = conn.execute("SELECT * FROM chats WHERE user_id = %s AND chat_id = %s", (user_id, chat_id)).fetchone()
+            row = conn.execute("SELECT * FROM app_chats WHERE user_id = %s AND chat_id = %s", (user_id, chat_id)).fetchone()
             if not row:
                 raise NotFoundError("Chat not found.")
             return dict(row)
@@ -324,13 +324,13 @@ class SqlRepository:
         with get_connection() as conn:
             row = conn.execute(
                 """
-                INSERT INTO messages (user_id, chat_id, role, content, metadata)
+                INSERT INTO app_messages (user_id, chat_id, role, content, metadata)
                 VALUES (%s, %s, %s, %s, %s)
                 RETURNING *
                 """,
                 (user_id, chat_id, role, content, json_param(metadata or {})),
             ).fetchone()
-            conn.execute("UPDATE chats SET updated_at = now() WHERE chat_id = %s", (chat_id,))
+            conn.execute("UPDATE app_chats SET updated_at = now() WHERE chat_id = %s", (chat_id,))
             conn.commit()
             return dict(row)
 
@@ -339,7 +339,7 @@ class SqlRepository:
         with get_connection() as conn:
             row = conn.execute(
                 """
-                INSERT INTO runs (
+                INSERT INTO app_runs (
                     run_id, user_id, chat_id, message_id, status, route, answer,
                     citations, trace_s3_key, latency_ms, token_usage, error_message
                 )
@@ -366,7 +366,7 @@ class SqlRepository:
 
     def get_run(self, user_id: UUID, run_id: UUID) -> dict[str, Any]:
         with get_connection() as conn:
-            row = conn.execute("SELECT * FROM runs WHERE user_id = %s AND run_id = %s", (user_id, run_id)).fetchone()
+            row = conn.execute("SELECT * FROM app_runs WHERE user_id = %s AND run_id = %s", (user_id, run_id)).fetchone()
             if not row:
                 raise NotFoundError("Run not found.")
             return dict(row)
@@ -374,7 +374,7 @@ class SqlRepository:
     def create_evaluation_dataset(self, *, user_id: UUID, name: str, description: str | None) -> dict[str, Any]:
         with get_connection() as conn:
             row = conn.execute(
-                "INSERT INTO evaluation_datasets (user_id, name, description) VALUES (%s, %s, %s) RETURNING *",
+                "INSERT INTO app_evaluation_datasets (user_id, name, description) VALUES (%s, %s, %s) RETURNING *",
                 (user_id, name, description),
             ).fetchone()
             conn.commit()
@@ -391,7 +391,7 @@ class SqlRepository:
         with get_connection() as conn:
             row = conn.execute(
                 """
-                INSERT INTO evaluation_cases (dataset_id, query, expected_answer, expected_citations)
+                INSERT INTO app_evaluation_cases (dataset_id, query, expected_answer, expected_citations)
                 VALUES (%s, %s, %s, %s)
                 RETURNING *
                 """,
@@ -403,7 +403,7 @@ class SqlRepository:
     def list_evaluation_cases(self, dataset_id: UUID) -> list[dict[str, Any]]:
         with get_connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM evaluation_cases WHERE dataset_id = %s ORDER BY created_at ASC",
+                "SELECT * FROM app_evaluation_cases WHERE dataset_id = %s ORDER BY created_at ASC",
                 (dataset_id,),
             ).fetchall()
             return [dict(row) for row in rows]
@@ -420,7 +420,7 @@ class SqlRepository:
         with get_connection() as conn:
             row = conn.execute(
                 """
-                INSERT INTO evaluation_runs (user_id, dataset_id, knowledge_base_id, status, metrics)
+                INSERT INTO app_evaluation_runs (user_id, dataset_id, knowledge_base_id, status, metrics)
                 VALUES (%s, %s, %s, %s, %s)
                 RETURNING *
                 """,
@@ -432,7 +432,7 @@ class SqlRepository:
     def get_evaluation_run(self, user_id: UUID, evaluation_run_id: UUID) -> dict[str, Any]:
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT * FROM evaluation_runs WHERE user_id = %s AND evaluation_run_id = %s",
+                "SELECT * FROM app_evaluation_runs WHERE user_id = %s AND evaluation_run_id = %s",
                 (user_id, evaluation_run_id),
             ).fetchone()
             if not row:
