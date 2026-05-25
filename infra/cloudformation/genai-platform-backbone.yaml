@@ -409,6 +409,8 @@ Resources:
               Value: "false"
             - Name: LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES
               Value: "true"
+            - Name: HOSTNAME
+              Value: "0.0.0.0"
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -442,7 +444,13 @@ Resources:
       Port: 3000
       Protocol: HTTP
       TargetType: ip
-      HealthCheckPath: /
+      HealthCheckPath: /api/public/health
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
+      Matcher:
+        HttpCode: "200-399"
 
   Listener:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -499,7 +507,7 @@ Resources:
       Cluster: !Ref Cluster
       DesiredCount: 1
       LaunchType: FARGATE
-      HealthCheckGracePeriodSeconds: 180
+      HealthCheckGracePeriodSeconds: 300
       DeploymentConfiguration:
         MinimumHealthyPercent: 0
         MaximumPercent: 200
