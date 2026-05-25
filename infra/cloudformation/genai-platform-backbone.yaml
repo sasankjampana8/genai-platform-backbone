@@ -471,6 +471,13 @@ Resources:
       Cluster: !Ref Cluster
       DesiredCount: 1
       LaunchType: FARGATE
+      HealthCheckGracePeriodSeconds: 120
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
       TaskDefinition: !Ref ApiTaskDefinition
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -492,6 +499,13 @@ Resources:
       Cluster: !Ref Cluster
       DesiredCount: 1
       LaunchType: FARGATE
+      HealthCheckGracePeriodSeconds: 180
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
       TaskDefinition: !Ref LangfuseTaskDefinition
       NetworkConfiguration:
         AwsvpcConfiguration:
