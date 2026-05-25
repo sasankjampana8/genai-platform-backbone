@@ -69,7 +69,7 @@ jobs:
             echo "Stack status is '${STACK_STATUS:-not found}'. No failed rollback cleanup needed."
           fi
 
-      - name: Deploy CloudFormation starter
+      - name: Deploy CloudFormation stack
         run: |
           aws cloudformation deploy \
             --template-file infra/cloudformation/genai-platform-backbone.yaml \
@@ -78,7 +78,9 @@ jobs:
             --parameter-overrides \
               ContainerImage="${{ steps.names.outputs.image-uri }}" \
               DatabasePassword="${{ secrets.DB_PASSWORD }}" \
-              OpenAIApiKey="${{ secrets.OPENAI_API_KEY }}"
+              OpenAIApiKey="${{ secrets.OPENAI_API_KEY }}" \
+              LangfuseNextauthSecret="${{ secrets.LANGFUSE_NEXTAUTH_SECRET || 'dev-change-me-nextauth-secret' }}" \
+              LangfuseSalt="${{ secrets.LANGFUSE_SALT || 'dev-change-me-langfuse-salt' }}"
 
       - name: Show outputs
         run: |

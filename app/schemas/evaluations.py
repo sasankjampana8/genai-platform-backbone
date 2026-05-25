@@ -26,4 +26,4 @@ class EvaluationRunResponse(PlatformModel):
     evaluation_run_id: UUID
     dataset_id: UUID
     status: str
-
+    metrics: dict = Field(default_factory=dict)

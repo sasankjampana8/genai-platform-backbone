@@ -4,7 +4,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS users (
     user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     cognito_sub TEXT UNIQUE NOT NULL,
-    email TEXT,
+    email TEXT UNIQUE,
     display_name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -73,6 +73,10 @@ CREATE TABLE IF NOT EXISTS chunks (
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE chunks
+ADD COLUMN IF NOT EXISTS search_vector tsvector
+GENERATED ALWAYS AS (to_tsvector('english', coalesce(chunk_text, ''))) STORED;
 
 CREATE TABLE IF NOT EXISTS chats (
     chat_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -163,4 +167,3 @@ CREATE TABLE IF NOT EXISTS feedback (
     comment TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-

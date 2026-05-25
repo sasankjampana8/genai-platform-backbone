@@ -19,6 +19,11 @@ class RegisterResponse(PlatformModel):
     status: str
 
 
+class ConfirmRequest(PlatformModel):
+    email: str = Field(pattern=EMAIL_PATTERN)
+    confirmation_code: str = Field(min_length=4, max_length=20)
+
+
 class LoginRequest(PlatformModel):
     email: str = Field(pattern=EMAIL_PATTERN)
     password: str = Field(min_length=8, max_length=128)

@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.db import initialize_database
 from app.core.errors import AppError
 from app.core.logging import configure_logging, get_logger
 from app.core.responses import error_payload
@@ -26,6 +27,11 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(api_router, prefix="/v1")
+
+    @app.on_event("startup")
+    def startup() -> None:
+        if not settings.mock_mode:
+            initialize_database()
 
     @app.get("/health", tags=["health"])
     def health() -> dict:
@@ -61,4 +67,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-

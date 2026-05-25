@@ -4,7 +4,7 @@ This subproject is a reusable GenAI backend platform designed for future agentic
 
 The platform is a modular monolith FastAPI service with clean routers, services, repositories, providers, registries, workers, migrations, and infrastructure. It is designed so future business workflows, including a LangGraph-based AI Systems Architect Copilot, can call the platform instead of owning ingestion, retrieval, tracing, and evaluation themselves.
 
-This first implementation does not include LangGraph workflow code. LangGraph should be added later as a consumer of this backbone.
+This implementation is meant to be an independent reusable backend. LangGraph/LangChain agents should use this backbone for durable platform capabilities such as auth, knowledge bases, ingestion, retrieval, tracing, tools, and evaluation. Agent workflows remain swappable.
 
 ## Core Principles
 
@@ -26,54 +26,56 @@ Required internal shape:
 Router -> Service -> Repository / Provider
 ```
 
-## Current Scaffold Status
+## Current Implementation Status
 
-This subproject currently provides:
+This subproject currently provides real deployable infrastructure and real provider wiring for the core platform path:
 
-- FastAPI app skeleton.
-- Versioned `/v1` routers.
+- FastAPI application with versioned `/v1` routers.
 - Pydantic request/response schemas.
 - Service layer boundaries.
-- Repository interfaces and SQL repository skeletons.
-- Provider interfaces for S3, SQS, OpenAI, Bedrock rerank, Cognito, and Langfuse.
+- PostgreSQL repository implementation for metadata, chats, runs, evals, and pgvector chunks.
+- S3 provider for raw document storage.
+- LiteLLM model gateway for OpenAI embeddings and chat models.
+- Bedrock Cohere reranker provider with local fallback for tests.
+- Cognito signup, confirmation, login, refresh, logout, and JWT-based request context.
 - Chunking strategy registry.
-- Retrieval strategy registry.
+- Retrieval strategy registry and real retrieval service for vector, hybrid RRF, query rewrite, HyDE, and adaptive modes.
 - Context builder.
-- Processing worker skeleton.
-- Evaluation worker skeleton.
+- Processing path for PDF/DOCX extraction, chunking, embedding, and pgvector indexing.
+- Evaluation dataset/case upload and benchmark run APIs.
+- Tool API plus an MCP-style JSON-RPC endpoint for `tools/list` and `tools/call`.
+- Reusable `AgentRuntime` interface and `SimpleRagAgent` implementation.
 - PostgreSQL/pgvector migration SQL.
-- CloudFormation ECS/Fargate starter stack.
-- GitHub Actions deploy/destroy workflow starters.
-- Langfuse Docker Compose file.
+- CloudFormation ECS/Fargate stack for the API, RDS, S3, SQS, Cognito, ALB, and Langfuse service.
+- GitHub Actions deploy/destroy workflows.
+- Local Langfuse Docker Compose file.
 - Local smoke script.
 - Unit tests for the registries and API envelope.
 
-Many provider methods are safe skeletons or mock-friendly implementations. AWS setup, secrets, and final provider wiring can be completed after policies and infrastructure are ready.
+`MOCK_MODE=true` still exists for local tests, but deployed environments use real providers when the required AWS and model credentials are configured.
 
 ## Architecture
 
 ```text
 Client / Swagger
-  -> API Gateway
-  -> VPC Link
   -> ALB
   -> ECS Fargate FastAPI service
   -> Services
   -> PostgreSQL / S3 / SQS / OpenAI / Bedrock / Langfuse
 
-SQS processing queue
-  -> ECS Fargate processing worker
+Document processing
+  -> API-triggered inline processing for Swagger-friendly testing
   -> S3 raw files
   -> extraction
   -> chunk registry
   -> OpenAI embeddings
   -> PostgreSQL pgvector
 
-SQS evaluation queue
-  -> ECS Fargate evaluation worker
-  -> datasets and cases
-  -> metrics
-  -> traces
+Evaluation
+  -> API-triggered benchmark runs for Swagger-friendly testing
+  -> uploaded CSV/JSON cases
+  -> retrieval + generation
+  -> metrics persisted in PostgreSQL
 ```
 
 ## Local Setup
@@ -182,6 +184,7 @@ MAX_UPLOAD_FILE_SIZE_BYTES=10485760
 
 ```text
 POST /v1/auth/register
+POST /v1/auth/confirm
 POST /v1/auth/login
 POST /v1/auth/refresh
 POST /v1/auth/logout
@@ -253,8 +256,17 @@ GET  /v1/prompts
 ```text
 POST /v1/evaluations/datasets
 POST /v1/evaluations/datasets/{dataset_id}/cases
+POST /v1/evaluations/datasets/{dataset_id}/cases/upload
 POST /v1/evaluations/runs
 GET  /v1/evaluations/runs/{evaluation_run_id}
+```
+
+### Tools And MCP-Style JSON-RPC
+
+```text
+GET  /v1/tools
+POST /v1/tools/invoke
+POST /v1/tools/mcp
 ```
 
 ### Observability
@@ -387,7 +399,15 @@ evaluation-worker: python -m app.workers.evaluation_worker
 
 ## Langfuse
 
-Langfuse is intentionally hosted separately from the main CloudFormation stack.
+The AWS stack runs Langfuse as an ECS/Fargate service on the same load balancer using port `3001`.
+
+After deployment, open:
+
+```text
+http://<load-balancer-dns>:3001
+```
+
+For local development, start Langfuse with Docker Compose.
 
 Start local Langfuse:
 
@@ -408,7 +428,7 @@ Telemetry failures must never fail user-facing APIs.
 
 ## CloudFormation
 
-Starter stack:
+Stack template:
 
 ```text
 infra/cloudformation/genai-platform-backbone.yaml
@@ -419,21 +439,20 @@ It is designed to create:
 - VPC and subnets.
 - ALB.
 - ECS cluster.
-- ECR repositories.
-- ECS services for API, processing worker, and evaluation worker.
+- ECS service for the FastAPI API.
+- ECS service for Langfuse.
 - S3 artifact bucket.
 - SQS processing and evaluation queues.
 - RDS PostgreSQL.
 - Cognito User Pool and User Pool Client.
-- API Gateway HTTP API with VPC Link.
 - IAM roles.
 - CloudWatch log groups.
 
-The template is a deployable starter, but you should review CIDR ranges, DB access, secrets, and IAM scoping before running it in AWS.
+The template is deployable for development, but you should review CIDR ranges, DB access, secrets, and IAM scoping before running it in AWS.
 
 ## GitHub Actions
 
-Workflow starters:
+Workflows:
 
 ```text
 .github/workflows/deploy-genai-platform.yml
@@ -467,18 +486,18 @@ Deploy workflow responsibilities:
 3. Deploy/update CloudFormation.
 4. Print stack outputs.
 
-The current workflow is intentionally a starter. In the next pass, add ECR image build/push and migration execution after your IAM policy is ready.
+The deploy workflow builds and pushes the container image, validates CloudFormation, deploys the stack, and prints outputs. Database migrations run at FastAPI startup when the service boots.
 
 ## Infrastructure Notes
 
-The CloudFormation template creates an ECS/Fargate oriented starter stack, not the older Lambda RAG stack. It includes the first cloud shape for the reusable platform:
+The CloudFormation template creates an ECS/Fargate oriented stack, not the older Lambda RAG stack. It includes the cloud shape for the reusable platform:
 
 - VPC, public subnets, internet gateway, route table.
 - S3 artifact bucket.
-- Processing and evaluation queues with DLQs.
+- Processing and evaluation queues with DLQs for future async worker mode.
 - Cognito user pool and app client.
 - RDS PostgreSQL.
-- ECS cluster, task role, execution role, task definition, service.
+- ECS cluster, task role, execution role, API task definition, API service, Langfuse task definition, and Langfuse service.
 - ALB, target group, listener.
 
 Before running in AWS, review:
@@ -506,21 +525,17 @@ Current tests cover:
 - Retrieval registry.
 - Context builder.
 
-## Implementation Order
+## Remaining Hardening Work
 
 Recommended next implementation order:
 
-1. Finalize settings and dependency injection.
-2. Wire PostgreSQL repositories.
-3. Wire Cognito JWT validation.
-4. Wire S3 multipart upload provider.
-5. Wire SQS job enqueueing.
-6. Complete processing worker with real extraction/chunking/embedding/indexing.
-7. Complete retrieval search and answer endpoints.
-8. Wire Bedrock Cohere reranker.
-9. Add Langfuse trace emission.
-10. Add evaluation worker.
-11. Harden CloudFormation and GitHub Actions.
+1. Add long-running ECS worker loops for SQS processing and evaluation queues.
+2. Add full Langfuse trace emission from services and agent decorators.
+3. Add a first LangGraph agent package that consumes `AgentRuntime`, retrieval, tools, and tracing.
+4. Add hosted MCP transport if a standards-complete remote MCP server is required.
+5. Replace lightweight built-in eval metrics with full DeepEval/RAGAS scoring jobs.
+6. Add HTTPS/custom domain for API and Langfuse.
+7. Move sensitive runtime values from CloudFormation parameters into Secrets Manager.
 
 ## Acceptance Criteria
 

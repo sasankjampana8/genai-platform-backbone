@@ -12,6 +12,7 @@ from app.api.v1 import (
     profile,
     prompts,
     retrieval,
+    tools,
 )
 
 api_router = APIRouter()
@@ -22,8 +23,8 @@ api_router.include_router(knowledge_bases.router, prefix="/knowledge-bases", tag
 api_router.include_router(processing.router, prefix="/processing", tags=["processing"])
 api_router.include_router(chunking.router, prefix="/chunking", tags=["chunking"])
 api_router.include_router(retrieval.router, prefix="/retrieval", tags=["retrieval"])
+api_router.include_router(tools.router, prefix="/tools", tags=["tools"])
 api_router.include_router(chats.router, tags=["chats"])
 api_router.include_router(prompts.router, prefix="/prompts", tags=["prompts"])
 api_router.include_router(evaluations.router, prefix="/evaluations", tags=["evaluations"])
 api_router.include_router(observability.router, prefix="/observability", tags=["observability"])
-

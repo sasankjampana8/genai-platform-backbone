@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: GenAI Platform Backbone starter stack for ECS/Fargate, RDS pgvector, S3, SQS, Cognito, ALB, and API Gateway.
+Description: GenAI Platform Backbone stack for ECS/Fargate, RDS pgvector, S3, SQS, Cognito, ALB, and Langfuse.
 
 Parameters:
   ProjectName:
@@ -24,6 +24,14 @@ Parameters:
   OpenAIApiKey:
     Type: String
     NoEcho: true
+  LangfuseNextauthSecret:
+    Type: String
+    NoEcho: true
+    Default: dev-change-me-nextauth-secret
+  LangfuseSalt:
+    Type: String
+    NoEcho: true
+    Default: dev-change-me-langfuse-salt
   VpcCidr:
     Type: String
     Default: 10.42.0.0/16
@@ -185,6 +193,10 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3001
+          ToPort: 3001
+          CidrIp: 0.0.0.0/0
 
   ServiceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -195,6 +207,10 @@ Resources:
         - IpProtocol: tcp
           FromPort: 8000
           ToPort: 8000
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
           SourceSecurityGroupId: !Ref AlbSecurityGroup
 
   DatabaseSecurityGroup:
@@ -269,6 +285,10 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
+                  - s3:ListBucket
+                Resource: !GetAtt ArtifactBucket.Arn
+              - Effect: Allow
+                Action:
                   - s3:GetObject
                   - s3:PutObject
                   - s3:DeleteObject
@@ -286,11 +306,24 @@ Resources:
                 Action:
                   - bedrock:InvokeModel
                 Resource: "*"
+              - Effect: Allow
+                Action:
+                  - cognito-idp:SignUp
+                  - cognito-idp:ConfirmSignUp
+                  - cognito-idp:InitiateAuth
+                  - cognito-idp:GlobalSignOut
+                Resource: !GetAtt UserPool.Arn
 
   ApiLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub "/ecs/${ProjectName}/${EnvironmentName}/api"
+      RetentionInDays: 14
+
+  LangfuseLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${ProjectName}/${EnvironmentName}/langfuse"
       RetentionInDays: 14
 
   ApiTaskDefinition:
@@ -317,6 +350,10 @@ Resources:
               Value: "false"
             - Name: AUTH_DISABLED
               Value: "false"
+            - Name: INLINE_PROCESSING
+              Value: "true"
+            - Name: ENABLE_BEDROCK_RERANK
+              Value: "true"
             - Name: AWS_REGION
               Value: !Ref AWS::Region
             - Name: S3_BUCKET
@@ -333,12 +370,51 @@ Resources:
               Value: !Ref OpenAIApiKey
             - Name: DATABASE_URL
               Value: !Sub "postgresql://${DatabaseUsername}:${DatabasePassword}@${Database.Endpoint.Address}:5432/${DatabaseName}"
+            - Name: LANGFUSE_HOST
+              Value: !Sub "http://${LoadBalancer.DNSName}:3001"
           LogConfiguration:
             LogDriver: awslogs
             Options:
               awslogs-group: !Ref ApiLogGroup
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: api
+
+  LangfuseTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${ProjectName}-${EnvironmentName}-langfuse"
+      Cpu: "512"
+      Memory: "1024"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: langfuse
+          Image: langfuse/langfuse:2
+          Essential: true
+          PortMappings:
+            - ContainerPort: 3000
+          Environment:
+            - Name: DATABASE_URL
+              Value: !Sub "postgresql://${DatabaseUsername}:${DatabasePassword}@${Database.Endpoint.Address}:5432/${DatabaseName}"
+            - Name: NEXTAUTH_URL
+              Value: !Sub "http://${LoadBalancer.DNSName}:3001"
+            - Name: NEXTAUTH_SECRET
+              Value: !Ref LangfuseNextauthSecret
+            - Name: SALT
+              Value: !Ref LangfuseSalt
+            - Name: TELEMETRY_ENABLED
+              Value: "false"
+            - Name: LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES
+              Value: "true"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LangfuseLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: langfuse
 
   LoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
@@ -359,6 +435,15 @@ Resources:
       TargetType: ip
       HealthCheckPath: /health
 
+  LangfuseTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref Vpc
+      Port: 3000
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: /
+
   Listener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
@@ -368,6 +453,16 @@ Resources:
       DefaultActions:
         - Type: forward
           TargetGroupArn: !Ref TargetGroup
+
+  LangfuseListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 3001
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref LangfuseTargetGroup
 
   ApiService:
     Type: AWS::ECS::Service
@@ -390,9 +485,32 @@ Resources:
           ContainerPort: 8000
           TargetGroupArn: !Ref TargetGroup
 
+  LangfuseService:
+    Type: AWS::ECS::Service
+    DependsOn: LangfuseListener
+    Properties:
+      Cluster: !Ref Cluster
+      DesiredCount: 1
+      LaunchType: FARGATE
+      TaskDefinition: !Ref LangfuseTaskDefinition
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ServiceSecurityGroup
+          Subnets:
+            - !Ref PublicSubnetA
+            - !Ref PublicSubnetB
+      LoadBalancers:
+        - ContainerName: langfuse
+          ContainerPort: 3000
+          TargetGroupArn: !Ref LangfuseTargetGroup
+
 Outputs:
   LoadBalancerUrl:
     Value: !Sub "http://${LoadBalancer.DNSName}"
+  LangfuseUrl:
+    Value: !Sub "http://${LoadBalancer.DNSName}:3001"
   ArtifactBucketName:
     Value: !Ref ArtifactBucket
   ProcessingQueueUrl:

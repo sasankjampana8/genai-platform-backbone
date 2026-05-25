@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     mock_mode: bool = False
     auth_disabled: bool = False
+    inline_processing: bool = True
 
     aws_region: str = "ap-south-1"
     s3_bucket: str = "genai-platform-backbone-artifacts"
@@ -29,9 +30,11 @@ class Settings(BaseSettings):
     openai_api_key: str | None = Field(default=None, repr=False)
     openai_embedding_model: str = "text-embedding-3-small"
     openai_chat_model: str = "gpt-4.1-mini"
+    llm_provider: str = "openai"
 
     bedrock_region: str = "ap-south-1"
     bedrock_rerank_model_id: str = "cohere.rerank-v3-5:0"
+    enable_bedrock_rerank: bool = True
 
     langfuse_host: str | None = None
     langfuse_public_key: str | None = Field(default=None, repr=False)
@@ -47,4 +50,3 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
-
